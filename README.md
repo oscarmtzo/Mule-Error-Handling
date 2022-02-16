@@ -1,4 +1,4 @@
-# Error On Propagate
+# Error Hadling - Mulesoft
 ![](https://docs.mulesoft.com/mule-runtime/4.4/_images/error-handling-try.png) *Example of the On Error Propagate connector*
 ## Case of Study
 - Use case: Clients can fetch actors details from a movie database on actor ID.

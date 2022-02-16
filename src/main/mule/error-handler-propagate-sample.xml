@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:secure-properties="http://www.mulesoft.org/schema/mule/secure-properties" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/secure-properties http://www.mulesoft.org/schema/mule/secure-properties/current/mule-secure-properties.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="8cbcff59-fd3f-4a5f-8880-a5d3de0cc23d">
+		<http:listener-connection host="0.0.0.0" port="${secure::http.port}"/>
+	</http:listener-config>
+	<secure-properties:config name="Secure_Properties_Config" doc:name="Secure Properties Config" doc:id="9082375e-63d4-4d9b-ad57-6fbcdcd54616" file="dev-prop-secure.yaml" key="password12345678" />
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="25e5f98f-c434-47d4-8bd4-fe5e10cc6bcf" >
+		<db:my-sql-connection host="${secure::db.host}" port="${secure::db.port}" user="${secure::db.user}" database="sakila" password="${secure::db.password}"/>
+	</db:config>
+	<sub-flow name="fetch-actor-subFlow" doc:id="7eb86425-0d27-4878-95cf-055f8ae713c1" >
+		<try doc:name="Try" doc:id="20a88fb9-6da3-49df-b528-329b2dd8d0a3" >
+			<logger level="INFO" doc:name="Logger" doc:id="14ff84c4-cd87-49ea-84db-9a9c57a95a07" message="db CALL" />
+			<db:select doc:id="12ceaae7-5790-4c9c-a4de-9746e42097f1" config-ref="Database_Config" doc:name="Select">
+			<db:sql><![CDATA[SELECT * FROM actor
+WHERE actor_id = :actorID]]></db:sql>
+			<db:input-parameters><![CDATA[#[{
+	actorID: attributes.queryParams.actorid
+}]]]></db:input-parameters>
+		</db:select>
+			<logger level="INFO" doc:name="Logger" doc:id="f66712cd-f404-436d-887b-69d46d98a958" message="DB - Response" />
+			<error-handler >
+				<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="a1bbc44f-25e1-4e13-9004-d8dd9f5b20b3" >
+					<logger level="INFO" doc:name="Logger" doc:id="49323fd9-f98b-41ca-af07-837140aa1e22" message="DB Error Ocurred"/>
+				</on-error-continue>
+			</error-handler>
+		</try>
+	</sub-flow>
+	<flow name="error-handler-propagate-sampleFlow" doc:id="1751848f-a8ae-43f3-bd7a-d3e102dc485b" >
+		<http:listener doc:name="Listener" doc:id="bdca3b82-355e-4a97-9e13-18c75eebf431" config-ref="HTTP_Listener_config" path="${secure::http.path}">
+			<http:error-response statusCode="#[vars.statusCode]" reasonPhrase="#[vars.reasonPhrase]">
+				<http:body ><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+		<validation:is-number doc:name="Is number" doc:id="8b2ad1c2-0f4a-4ba3-87b1-8f4657d4a69f" value="#[attributes.queryParams.actorid]" numberType="INTEGER" message="actorid must be a Number"/>
+		<logger level="INFO" doc:name="Logger" doc:id="b8a3171d-3a6b-47b8-9bd9-d3757e751684" message="DB password is: ${secure::db.password}"/>
+		<flow-ref doc:name="fetch-actor-subFlow" doc:id="1f982303-114a-4031-96e8-f79b7c58f9e2" name="fetch-actor-subFlow" />
+		<ee:transform doc:name="Transform Message" doc:id="0603f5e3-9234-4b8c-a211-d6fd233c0ccb" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload[0]]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="0afac028-7202-4aa1-ad81-a12cd78669c1" message="#[payload]"/>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="4ca27ab2-0623-4ab5-9b8f-500bbb319cc8" type="VALIDATION:INVALID_NUMBER">
+				<ee:transform doc:name="Transform Message" doc:id="4a5c5a1c-5238-4b65-977a-2b2597a048e2" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"status": 400,
+	"message": error.description
+}]]></ee:set-payload>
+					</ee:message>
+					<ee:variables >
+						<ee:set-variable variableName="statusCode" ><![CDATA[400]]></ee:set-variable>
+						<ee:set-variable variableName="reasonPhrase" ><![CDATA["Bad Request"]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+			</on-error-propagate>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="756c6733-122d-4503-aee6-ea155e9a1445" type="DB:CONNECTIVITY">
+				<ee:transform doc:name="Transform Message" doc:id="02e8efe3-7de3-4d77-8675-557be1b40c59" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"status": 500,
+	"message": "Internal server error"
+}]]></ee:set-payload>
+					</ee:message>
+					<ee:variables >
+						<ee:set-variable variableName="statusCode" ><![CDATA[500]]></ee:set-variable>
+						<ee:set-variable variableName="reasonPhrase" ><![CDATA["Server Error"]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+			</on-error-propagate>
+		</error-handler>
+	</flow>
+</mule>
